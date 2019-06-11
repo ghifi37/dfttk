@@ -208,7 +208,7 @@ def calculate_internal_energy(mu_el, energy, density, beta): # line 471
 
 def calculate_entropy(mu_el, energy, density, beta):
     tc = beta * (energy - mu_el)
-    tf = 1.0/(np.exp(tc)+1.0)
+    tf = 1.0/(np.exp(tc)+1.0) + 1.e-60  # To avoid RuntimeWarning: invalid value encountered in multiply
     tf1 = 1.0 - tf + 1.e-60
     fn = density * (tf * np.log(tf) + tf1 * np.log(tf1))
     fn[tc>200] = 0

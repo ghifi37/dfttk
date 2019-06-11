@@ -10,12 +10,14 @@ from atomate.vasp.config import VASP_CMD, DB_FILE
 from dfttk.ftasks import QHAAnalysis
 from dfttk.fworks import OptimizeFW, StaticFW, PhononFW
 from dfttk.input_sets import RelaxSet, StaticSet, ForceConstantsSet
+from dfttk.EVcheck_QHA import EVcheck_QHA
 
 
 def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1),
                  phonon=False, phonon_supercell_matrix=None,
-                 t_min=5, t_max=2000, t_step=5,
-                 vasp_cmd=None, db_file=None, metadata=None, name='EV_QHA'):
+                 t_min=5, t_max=2000, t_step=5, tolerance = 0.001,
+                 vasp_cmd=None, db_file=None, metadata=None, name='EV_QHA', 
+                 passinitrun=False):
     """
     E - V
     curve
@@ -39,6 +41,8 @@ def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1
         Temperature step size
     t_max : float
         Maximum temperature (inclusive)
+    tolerance: float
+        Acceptable value for average RMS, recommend >= 0.001.
     vasp_cmd : str
         Command to run VASP. If None (the default) is passed, the command will be looked up in the FWorker.
     db_file : str
@@ -47,60 +51,75 @@ def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1
         Name of the workflow
     metadata : dict
         Metadata to include
+    passinitrun: bool
+        Set True to pass initial VASP running if the results exist in DB, use carefully to keep data consistent
     """
     vasp_cmd = vasp_cmd or VASP_CMD
     db_file = db_file or DB_FILE
 
     metadata = metadata or {}
     tag = metadata.get('tag', '{}'.format(str(uuid4())))
-    if 'tag' not in metadata.keys():
-        metadata['tag'] = tag
+    max_spacing = 0.02  # for ratio of Volumes spacing
 
     if isinstance(deformation_fraction, (list, tuple)):
         deformations = np.linspace(1+deformation_fraction[0], 1+deformation_fraction[1], num_deformations)
+        vol_spacing = max((deformation_fraction[1] - deformation_fraction[0]) / (num_deformations - 1) + 0.001, max_spacing)
     else:
         deformations = np.linspace(1-deformation_fraction, 1+deformation_fraction, num_deformations)
-
-    # follow a scheme of
-    # 1. Full relax + symmetry check
-    # 2. If symmetry check fails, detour to 1. Volume relax, 2. inflection detection
-    # 3. Inflection detection
-    # 4. Static EV
-    # 5. Phonon EV
+        vol_spacing = max(deformation_fraction / (num_deformations - 1) * 2 + 0.001, max_spacing)
+            
     fws = []
     static_calcs = []
     phonon_calcs = []
-    # for each FW, we set the structure to the original structure to verify to ourselves that the
-    # volume deformed structure is set by input set.
-
-    # Full relax
-    vis = RelaxSet(structure)
-    full_relax_fw = OptimizeFW(structure, symmetry_tolerance=0.05, job_type='normal', name='Full relax', prev_calc_loc=False, vasp_input_set=vis, vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata, spec={'_preserve_fworker': True})
-    fws.append(full_relax_fw)
-
-    for i, deformation in enumerate(deformations):
-        vis = StaticSet(structure)
-        static = StaticFW(structure, scale_lattice=deformation, name='structure_{}-static'.format(i), vasp_input_set=vis, vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata, parents=full_relax_fw)
-        fws.append(static)
-        static_calcs.append(static)
-
-        if phonon:
-            vis = ForceConstantsSet(structure)
-            phonon_fw = PhononFW(structure, phonon_supercell_matrix, t_min=t_min, t_max=t_max, t_step=t_step,
-                     name='structure_{}-phonon'.format(i), vasp_input_set=vis,
-                     vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata,
-                     prev_calc_loc=True, parents=static)
-            fws.append(phonon_fw)
-            phonon_calcs.append(static)
-            phonon_calcs.append(phonon_fw)
+    if 'tag' not in metadata.keys():
+        metadata['tag'] = tag
+    
+    if not passinitrun:
+        # follow a scheme of
+        # 1. Full relax + symmetry check
+        # 2. If symmetry check fails, detour to 1. Volume relax, 2. inflection detection
+        # 3. Inflection detection
+        # 4. Static EV
+        # 5. Phonon EV
+        # for each FW, we set the structure to the original structure to verify to ourselves that the
+        # volume deformed structure is set by input set.
+    
+        # Full relax
+        vis = RelaxSet(structure)
+        full_relax_fw = OptimizeFW(structure, symmetry_tolerance=0.05, job_type='normal', name='Full relax', prev_calc_loc=False, vasp_input_set=vis, vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata, spec={'_preserve_fworker': True})
+        fws.append(full_relax_fw)
+    
+        for i, deformation in enumerate(deformations):
+            vis = StaticSet(structure)
+            static = StaticFW(structure, scale_lattice=deformation, name='structure_{}-static'.format(i), vasp_input_set=vis, vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata, parents=full_relax_fw)
+            fws.append(static)
+            static_calcs.append(static)
+    
+            if phonon:
+                vis = ForceConstantsSet(structure)
+                phonon_fw = PhononFW(structure, phonon_supercell_matrix, t_min=t_min, t_max=t_max, t_step=t_step,
+                         name='structure_{}-phonon'.format(i), vasp_input_set=vis,
+                         vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata,
+                         prev_calc_loc=True, parents=static)
+                fws.append(phonon_fw)
+                phonon_calcs.append(static)
+                phonon_calcs.append(phonon_fw)
+            
+    # To check E-V tolerance and QHAAnalysis
+    check_result = Firework(EVcheck_QHA(db_file = db_file, tag = tag, structure = structure, 
+                                        tolerance = tolerance, threshold = 14, vol_spacing = vol_spacing, vasp_cmd = vasp_cmd, 
+                                        metadata = metadata, t_min=t_min, t_max=t_max, t_step=t_step, phonon = phonon,
+                                        phonon_supercell_matrix = phonon_supercell_matrix, verbose = True), 
+                            parents=static_calcs, name='EVcheck_QHA')
+    fws.append(check_result)
 
     # always do a Debye after the static calculations. That way we can set up a phonon calculation, do a Debye fitting, then do the phonon if we want.
-    debye_fw = Firework(QHAAnalysis(phonon=False, t_min=t_min, t_max=t_max, t_step=t_step, db_file=db_file, tag=tag, metadata=metadata), parents=static_calcs, name="{}-qha_analysis-Debye".format(structure.composition.reduced_formula))
-    fws.append(debye_fw)
-    if phonon:
-        # do a Debye run before the phonon, so they can be done in stages.
-        phonon_fw = Firework(QHAAnalysis(phonon=True, t_min=t_min, t_max=t_max, t_step=t_step, db_file=db_file, tag=tag, metadata=metadata), parents=phonon_calcs, name="{}-qha_analysis-phonon".format(structure.composition.reduced_formula))
-        fws.append(phonon_fw)
+#    debye_fw = Firework(QHAAnalysis(phonon=False, t_min=t_min, t_max=t_max, t_step=t_step, db_file=db_file, tag=tag, metadata=metadata), parents=check_result, name="{}-qha_analysis-Debye".format(structure.composition.reduced_formula))
+#    fws.append(debye_fw)
+#    if phonon:
+#        # do a Debye run before the phonon, so they can be done in stages.
+#        phonon_fw = Firework(QHAAnalysis(phonon=True, t_min=t_min, t_max=t_max, t_step=t_step, db_file=db_file, tag=tag, metadata=metadata), parents=phonon_calcs, name="{}-qha_analysis-phonon".format(structure.composition.reduced_formula))
+#        fws.append(phonon_fw)
 
     wfname = "{}:{}".format(structure.composition.reduced_formula, name)
 

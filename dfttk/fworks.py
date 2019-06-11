@@ -11,6 +11,8 @@ from atomate.vasp.firetasks.run_calc import RunVaspCustodian
 from dfttk.input_sets import RelaxSet, StaticSet, ForceConstantsSet, ATATIDSet
 from dfttk.ftasks import WriteVaspFromIOSetPrevStructure, SupercellTransformation, CalculatePhononThermalProperties, \
     CheckSymmetry, ScaleVolumeTransformation, TransmuteStructureFile, WriteATATFromIOSet, RunATATCustodian, RunVaspCustodianNoValidate
+from atomate import __version__ as atomate_ver
+from dfttk import __version__ as dfttk_ver
 
 
 class OptimizeFW(Firework):
@@ -58,7 +60,8 @@ class OptimizeFW(Firework):
         t.append(RunVaspCustodian(vasp_cmd=vasp_cmd, job_type=job_type, gzip_output=False))
         t.append(PassCalcLocs(name=name))
         if db_insert:
-            t.append(VaspToDb(db_file=db_file, additional_fields={"task_label": name, "metadata": metadata}))
+            t.append(VaspToDb(db_file=db_file, additional_fields={"task_label": name, "metadata": metadata, \
+                                                                  "version_atomate": atomate_ver, "version_dfttk": dfttk_ver}))
         # This has to happen at the end because dynamically adding Fireworks if the symmetry breaks skips the rest of the tasks in the Firework.
         if symmetry_tolerance is not None:
             t.append(CheckSymmetry(tolerance=symmetry_tolerance, vasp_cmd=vasp_cmd, db_file=db_file, structure=structure, metadata=metadata, name=name))
@@ -115,7 +118,8 @@ class StaticFW(Firework):
         t.append(ModifyIncar(incar_update=">>incar_update<<"))
         t.append(RunVaspCustodian(vasp_cmd=vasp_cmd, auto_npar=">>auto_npar<<", gzip_output=False))
         t.append(PassCalcLocs(name=name))
-        t.append(VaspToDb(db_file=db_file, parse_dos=True, additional_fields={"task_label": name, "metadata": metadata},))
+        t.append(VaspToDb(db_file=db_file, parse_dos=True, additional_fields={"task_label": name, "metadata": metadata, \
+                                                                  "version_atomate": atomate_ver, "version_dfttk": dfttk_ver},))
         super(StaticFW, self).__init__(t, parents=parents, name="{}-{}".format(
             structure.composition.reduced_formula, name), **kwargs)
 

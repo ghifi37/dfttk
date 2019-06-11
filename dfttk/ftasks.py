@@ -22,6 +22,8 @@ from dfttk.analysis.phonon import get_f_vib_phonopy
 from dfttk.analysis.quasiharmonic import Quasiharmonic
 from dfttk.utils import sort_x_by_y
 from dfttk.custodian_jobs import ATATWalltimeHandler, ATATInfDetJob
+from atomate import __version__ as atomate_ver
+from dfttk import __version__ as dfttk_ver
 
 
 def extend_calc_locs(name, fw_spec):
@@ -85,7 +87,7 @@ class WriteVaspFromIOSetPrevStructure(FiretaskBase):
         # add site properties if they were added
         for prop, vals in self.get("site_properties", dict()).items():
             vis.structure.add_site_property(prop, vals)
-        vis.write_input(".")
+        vis.write_input("./stuct")
 
 
 @explicit_serialize
@@ -260,7 +262,7 @@ class QHAAnalysis(FiretaskBase):
         vasp_db = VaspCalcDb.from_db_file(db_file, admin=True)
 
         # get the energies, volumes and DOS objects by searching for the tag
-        static_calculations = vasp_db.collection.find({"metadata.tag": tag})
+        static_calculations = vasp_db.collection.find({'$and':[ {'metadata.tag': tag}, {'adopted': True} ]})
 
         energies = []
         volumes = []
@@ -288,6 +290,8 @@ class QHAAnalysis(FiretaskBase):
         qha_result['elements'] = sorted([el.name for el in structure.composition.elements])
         qha_result['metadata'] = self.get('metadata', {})
         qha_result['has_phonon'] = self['phonon']
+        qha_result['version_atomate'] = atomate_ver
+        qha_result['version_dfttk'] = dfttk_ver
 
         poisson = self.get('poisson', 0.363615)
         bp2gru = self.get('bp2gru', 1)
@@ -295,7 +299,7 @@ class QHAAnalysis(FiretaskBase):
         # phonon properties
         if self['phonon']:
             # get the vibrational properties from the FW spec
-            phonon_calculations = list(vasp_db.db['phonon'].find({'metadata.tag': tag}))
+            phonon_calculations = list(vasp_db.db['phonon'].find({'$and':[ {'metadata.tag': tag}, {'adopted': True} ]}))
             vol_vol = [calc['volume'] for calc in phonon_calculations]  # these are just used for sorting and will be thrown away
             vol_f_vib = [calc['F_vib'] for calc in phonon_calculations]
             # sort them order of the unit cell volumes

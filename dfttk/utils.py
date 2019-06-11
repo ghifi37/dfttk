@@ -199,14 +199,14 @@ def supercell_scaling_by_target_atoms(structure, min_atoms=60, max_atoms=120,
     supercell size. This allows for a variable supercell size, so it's going to be slow
     for a large range of atoms.
 
-    The search limits are passed directloy to ``find_optimal_cell_shape_pure_python``.
+    The search limits are passed directloy to ``find_optimal_cell_shape``.
     They define the search space for each individual supercell based on the "ideal" scaling.
     For example, a cell with 4 atoms and a target size of 110 atoms might have an ideal scaling
     of 3x3x3. The search space for a lower and upper limit of -2/+2 would be 1-5. Since the
     calculations are based on the cartesian product of 3x3 matrices, large search ranges are
     very expensive.
     """
-    from ase.build import get_deviation_from_optimal_cell_shape, find_optimal_cell_shape_pure_python
+    from ase.build import get_deviation_from_optimal_cell_shape, find_optimal_cell_shape
 
     # range of supercell sizes in number of unitcells
     supercell_sizes = range(min_atoms//len(structure), max_atoms//len(structure) + 1)
@@ -216,7 +216,7 @@ def supercell_scaling_by_target_atoms(structure, min_atoms=60, max_atoms=120,
 
     # find the target shapes
     for sc_size in supercell_sizes:
-        optimal_shape = find_optimal_cell_shape_pure_python(structure.lattice.matrix, sc_size, target_shape, upper_limit=upper_search_limit, lower_limit=lower_search_limit)
+        optimal_shape = find_optimal_cell_shape(structure.lattice.matrix, sc_size, target_shape, upper_limit=upper_search_limit, lower_limit=lower_search_limit, verbose = True)
         optimal_supercell_shapes.append(optimal_shape)
         optimal_supercell_scores.append(get_deviation_from_optimal_cell_shape(optimal_shape, target_shape))
 
@@ -274,3 +274,33 @@ def mget(d, path):
 
         current_path += "."
     return curr_dict
+
+
+def get_mat_info(struct):
+    name = struct.formula
+    configuration = []
+    occupancy = []
+    site_ratio = []
+    for e, a in struct.composition.items():
+        configuration.append([str(e)])
+        occupancy.append([1.0])
+        site_ratio.append([a])
+    return name, configuration, occupancy, site_ratio
+ 
+
+def mark_adopted_false(tag, db_file):
+    from atomate.vasp.database import VaspCalcDb
+    vasp_db = VaspCalcDb.from_db_file(db_file, admin = True)
+    vasp_db.collection.update({'metadata.tag': tag}, {'$set': {'adopted': False}}, upsert = True, multi = True)
+    vasp_db.db['phonon'].update({'metadata.tag': tag}, {'$set': {'adopted': False}}, upsert = True, multi = True)
+
+
+def mark_adopted(tag, db_file, volumes):
+    mark_adopted_false(tag, db_file)
+    from atomate.vasp.database import VaspCalcDb
+    vasp_db = VaspCalcDb.from_db_file(db_file, admin = True)
+    for volume in volumes:
+        vasp_db.collection.update({'$and':[ {'metadata.tag': tag}, {'output.structure.lattice.volume': volume} ]},
+                                  {'$set': {'adopted': True}}, upsert = True, multi = True)
+        vasp_db.db['phonon'].update({'$and':[ {'metadata.tag': tag}, {'volume': volume} ]},
+                                    {'$set': {'adopted': True}}, upsert = True, multi = True)

@@ -288,19 +288,163 @@ def get_mat_info(struct):
     return name, configuration, occupancy, site_ratio
  
 
-def mark_adopted_false(tag, db_file):
+def mark_adopted_TF(tag, db_file, adpoted):
     from atomate.vasp.database import VaspCalcDb
     vasp_db = VaspCalcDb.from_db_file(db_file, admin = True)
-    vasp_db.collection.update({'metadata.tag': tag}, {'$set': {'adopted': False}}, upsert = True, multi = True)
-    vasp_db.db['phonon'].update({'metadata.tag': tag}, {'$set': {'adopted': False}}, upsert = True, multi = True)
+    if vasp_db:
+        vasp_db.collection.update({'metadata.tag': tag}, {'$set': {'adopted': adpoted}}, upsert = True, multi = True)
+        vasp_db.db['phonon'].update({'metadata.tag': tag}, {'$set': {'adopted': adpoted}}, upsert = True, multi = True)
 
 
 def mark_adopted(tag, db_file, volumes):
-    mark_adopted_false(tag, db_file)
+    mark_adopted_TF(tag, db_file, False)             # Mark all as adpoted
     from atomate.vasp.database import VaspCalcDb
     vasp_db = VaspCalcDb.from_db_file(db_file, admin = True)
     for volume in volumes:
         vasp_db.collection.update({'$and':[ {'metadata.tag': tag}, {'output.structure.lattice.volume': volume} ]},
-                                  {'$set': {'adopted': True}}, upsert = True, multi = True)
+                                  {'$set': {'adopted': True}}, upsert = True, multi = False)            # Mark only one
         vasp_db.db['phonon'].update({'$and':[ {'metadata.tag': tag}, {'volume': volume} ]},
-                                    {'$set': {'adopted': True}}, upsert = True, multi = True)
+                                    {'$set': {'adopted': True}}, upsert = True, multi = False)
+
+
+import re
+from pymatgen import Structure
+class metadata_in_POSCAR():
+    '''
+    First line in POSCAR is like: SIGMA1;[0.5,0.5]16[0.25,0.75]32...;SQS;    Occupancies of 0 in [,] could not omitted
+    meta = metadata_in_POSCAR('POSCAR')
+    for config in configs:                          #configs writen like [['V', 'Ni'], ['Cr']]
+        metadata = meta.get_metadata(config) 
+    '''
+    def __init__(self, filename='POSCAR'):
+        self.poscarfile = filename
+        ss = self.parse_poscar()
+        if len(ss) <= 0:
+            self.phase_name = ''
+        else:
+            self.phase_name = ss[0]
+        if len(ss) < 3:
+            return
+        self.occupancies = []
+        self.site_ratios = []
+        digiarrs = ss[1].split('[')
+        for digis in digiarrs:
+            occupancy = []
+            if digis == '':
+                continue
+            digis = re.split(',|]', digis)
+            for i in range(len(digis) - 1):
+                occupancy.append(float(digis[i])) 
+            self.site_ratios.append(int(digis[-1]))
+            self.occupancies.append(occupancy)
+        self.method = ss[2]
+    
+    def parse_poscar(self):
+        '''
+        To parse the first line in POSCAR
+        Each tag word segmented by a semicolon(";")
+        Tag word could be as followings:
+            
+        '''
+        if not os.path.exists(self.poscarfile):
+            print('''
+#####################################################################################################
+#                                                                                                   #
+     The file "%s" does NOT exist, please biuld it with some instructions in first line!         
+#                                                                                                   #
+#####################################################################################################
+                  ''' %(self.poscarfile))
+            ss = list()
+        else:
+            file = open(self.poscarfile)
+            firstline = file.readline()
+            file.close
+            firstline = firstline.strip('\n')
+            firstline = firstline.replace(' ', '') 
+            firstline = firstline.upper()
+            ss = re.split('[:;~]', firstline)
+            i = len(ss) - 1
+            while i >= 0:
+                if ss[i] == '':
+                    ss.pop(i)
+                i -= 1
+        return(ss)  
+    
+    def get_metadata(self, config):
+        '''
+        configs writen like [['V', 'Ni'], ['Cr']]
+        '''
+        m = len(config)
+        n = len(self.occupancies)
+        if m != n:
+            print('Material configuration number(%s) is NOT equal to the occupancy number(%s), please check!' 
+                  %(m, n))
+            return()
+        for i in range(m):
+            if len(config[i]) > len(self.occupancies[i]):
+                print('Wrong configuration in %s, please check!' %config)
+                return()
+        if not self.check_POSCAR(config):
+            return()
+        metadata = {
+    		'phase': self.phase_name,
+    		'sublattice_model': {
+    			'configuration': config,
+    			'occupancies': self.occupancies,
+    			'site_ratios': self.site_ratios
+    			},
+            'method': self.method
+            }
+        return(metadata)
+    
+    def check_POSCAR(self, config):      
+        '''             
+        First line must like [1,0]32 to match the elements in POSCAR, 0 could not ignored.
+        '''
+        # To check the sum of occupancies
+        for m in range(len(self.site_ratios)):
+            sum_occupancy = 0
+            for n in range(len(self.occupancies[m])):
+                sum_occupancy += self.occupancies[m][n]
+            if abs(sum_occupancy - 1) > 1e-10:
+                print('The sum of occupancies in %s is NOT equal to 1, please check!' %self.occupancies[m])
+                return(False)
+
+        # To check config and occupancy
+        
+        temp_struct = Structure.from_file(self.poscarfile)
+        namelist_elements = []
+        numlist_elements = []
+        for e, a in temp_struct.composition.items():
+            namelist_elements.append(e)
+            numlist_elements.append(a)                        # [8.0, 24.0]
+        num_element_firstline = 0
+        for ocs in self.occupancies:
+            num_element_firstline += len(ocs) 
+        if len(numlist_elements) != num_element_firstline:
+            print('The number of element kind(%s) in first line of POASCAR is NOT same one in the structure(%s), maybe "0" occupancy should be added.'
+                  %(num_element_firstline, len(numlist_elements)))
+            return(False)
+        
+        index = 0
+        for m in range(len(self.site_ratios)):
+            if len(config[m]) < len(self.occupancies[m]):
+                num_occupancy = 0
+                for n in range(len(self.occupancies[m])):
+                    num_occupancy += self.occupancies[m][n] * self.site_ratios[m]
+                if abs(num_occupancy - numlist_elements[index]) > 1e-10:
+                    print('The sum of sites in %s%s is NOT equal to %s(Element: %s), please check!' 
+                          %(self.occupancies[m], self.site_ratios[m], 
+                            numlist_elements[index], namelist_elements[index]))
+                    return(False)
+                index += len(self.occupancies[m])  
+            else:
+                for n in range(len(self.occupancies[m])):
+                    if abs(numlist_elements[index] - self.occupancies[m][n] * self.site_ratios[m]) > 1e-10:
+                        print('The sites in %s * %s is NOT equal to %s(Element: %s), please check!' 
+                              %(self.occupancies[m][n], self.site_ratios[m], 
+                                numlist_elements[index], namelist_elements[index]))
+                        return(False)
+                    index += 1   
+        return(True)
+        

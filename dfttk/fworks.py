@@ -61,7 +61,8 @@ class OptimizeFW(Firework):
         t.append(PassCalcLocs(name=name))
         if db_insert:
             t.append(VaspToDb(db_file=db_file, additional_fields={"task_label": name, "metadata": metadata, \
-                                                                  "version_atomate": atomate_ver, "version_dfttk": dfttk_ver}))
+                                                                  "version_atomate": atomate_ver, "version_dfttk": dfttk_ver, \
+                                                                  "adopted": True}))
         # This has to happen at the end because dynamically adding Fireworks if the symmetry breaks skips the rest of the tasks in the Firework.
         if symmetry_tolerance is not None:
             t.append(CheckSymmetry(tolerance=symmetry_tolerance, vasp_cmd=vasp_cmd, db_file=db_file, structure=structure, metadata=metadata, name=name))
@@ -118,8 +119,8 @@ class StaticFW(Firework):
         t.append(ModifyIncar(incar_update=">>incar_update<<"))
         t.append(RunVaspCustodian(vasp_cmd=vasp_cmd, auto_npar=">>auto_npar<<", gzip_output=False))
         t.append(PassCalcLocs(name=name))
-        t.append(VaspToDb(db_file=db_file, parse_dos=True, additional_fields={"task_label": name, "metadata": metadata, \
-                                                                  "version_atomate": atomate_ver, "version_dfttk": dfttk_ver},))
+        t.append(VaspToDb(db_file=db_file, parse_dos=True, additional_fields={"task_label": name, "metadata": metadata, 
+                            "version_atomate": atomate_ver, "version_dfttk": dfttk_ver, "adopted": True},))
         super(StaticFW, self).__init__(t, parents=parents, name="{}-{}".format(
             structure.composition.reduced_formula, name), **kwargs)
 

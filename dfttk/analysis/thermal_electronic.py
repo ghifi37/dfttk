@@ -200,19 +200,23 @@ def gfind(mu_el, e, dos, n_electrons, beta):
 
 def calculate_internal_energy(mu_el, energy, density, beta): # line 471
     tc = beta * (energy - mu_el)
+    tc = np.array(tc, dtype=np.float128)
     fn = density * energy / (np.exp(tc) + 1.0)
     fn[tc>200] = 0
+    fn = np.array(fn, dtype=np.float64)
     u = trapz(fn, energy)
     return u
 
 
 def calculate_entropy(mu_el, energy, density, beta):
     tc = beta * (energy - mu_el)
+    tc = np.array(tc, dtype=np.float128)
     tf = 1.0/(np.exp(tc)+1.0) + 1.e-60  # To avoid RuntimeWarning: invalid value encountered in multiply
     tf1 = 1.0 - tf + 1.e-60
     fn = density * (tf * np.log(tf) + tf1 * np.log(tf1))
     fn[tc>200] = 0
     fn[tc<-200] = 0
+    fn = np.array(fn, dtype=np.float64)
     s = trapz(fn, energy)
     return -s*k_B
 

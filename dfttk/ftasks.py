@@ -79,7 +79,7 @@ class WriteVaspFromIOSetPrevStructure(FiretaskBase):
         # if a full VaspInputSet object was provided
         if hasattr(self['vasp_input_set'], 'write_input'):
             vis = self['vasp_input_set']
-            vis.structure = struct
+            vis._structure = struct
         # if VaspInputSet String + parameters was provided
         else:
             vis_cls = load_class("pymatgen.io.vasp.sets", self["vasp_input_set"])
@@ -87,7 +87,7 @@ class WriteVaspFromIOSetPrevStructure(FiretaskBase):
         # add site properties if they were added
         for prop, vals in self.get("site_properties", dict()).items():
             vis.structure.add_site_property(prop, vals)
-        vis.write_input("./stuct")
+        vis.write_input(".")
 
 
 @explicit_serialize
@@ -283,15 +283,12 @@ class QHAAnalysis(FiretaskBase):
         dos_objs = sort_x_by_y(dos_objs, volumes)
         volumes = sorted(volumes)
 
-
         qha_result = {}
         qha_result['structure'] = structure.as_dict()
         qha_result['formula_pretty'] = structure.composition.reduced_formula
         qha_result['elements'] = sorted([el.name for el in structure.composition.elements])
         qha_result['metadata'] = self.get('metadata', {})
         qha_result['has_phonon'] = self['phonon']
-        qha_result['version_atomate'] = atomate_ver
-        qha_result['version_dfttk'] = dfttk_ver
 
         poisson = self.get('poisson', 0.363615)
         bp2gru = self.get('bp2gru', 1)
@@ -340,7 +337,18 @@ class QHAAnalysis(FiretaskBase):
         qha_result['debye']['bp2gru'] = bp2gru
         qha_result['debye']['temperatures'] = qha_result['debye']['temperatures'].tolist()
 
-        qha_result['launch_dir'] = str(os.getcwd())
+        qha_result['version_atomate'] = atomate_ver
+        qha_result['version_dfttk'] = dfttk_ver
+        volumes_false = []
+        energies_false = []
+        static_falses = vasp_db.collection.find({'$and':[ {'metadata.tag': tag}, {'adopted': False} ]})
+        for static_false in static_falses:
+            volumes_false.append(static_false['output']['structure']['lattice']['volume'])
+            energies_false.append(static_false['output']['energy'])
+        qha_result['Volumes_fitting_false'] = volumes_false
+        qha_result['Energies_fitting_false'] = energies_false
+        print('Volumes_fitting_false : %s' %volumes_false)
+        print('Energies_fitting_false: %s' %energies_false)
 
         # write to JSON for debugging purposes
         import json

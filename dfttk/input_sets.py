@@ -124,10 +124,9 @@ class StaticSet(DictSet):
         # other settings from MPStaticSet
         "LAECHG": True,
         "LCHARG": True,
-        "LWAVE": True,
+        "LWAVE": False,
         "LORBIT": 11,
         "LVHAR": True,
-        "LWAVE": True,
         "ICHARG": 2,
         "NEDOS": 5001,
     })
@@ -184,4 +183,44 @@ class ATATIDSet():
         """.format(EDIFF, self.grid_density)    #         
         with open(os.path.join(output_dir, 'vaspid.wrap'), 'w') as fp:
             fp.write(vasp_wrap)
+
+class ForcesSet(DictSet):
+    """Set tuned for generic force calculations (Gaussian smearing).
+    """
+    CONFIG = _load_yaml_config("MPRelaxSet")
+    CONFIG['KPOINTS'].update({
+        'grid_density': 8000,
+    })
+    CONFIG['KPOINTS'].pop('reciprocal_density')  # to be explicit
+    CONFIG['INCAR'].pop('ENCUT',None) 
+    CONFIG['INCAR'].update({
+        'EDIFF_PER_ATOM': 1e-8,
+        'ISMEAR': 0,
+        'SIGMA': 0.05,
+        "NSW": 0,
+        "IBRION": -1,
+        'LREAL': False,
+        'ALGO': 'NORMAL',
+        # other settings from MPStaticSet
+        "LCHARG": False,
+        "LORBIT": 11,
+        "LVHAR": True,
+        "LWAVE": False,
+        "ICHARG": 2,
+        "NEDOS": 5001,
+    })
+    # now we reset the potentials
+    CONFIG['POTCAR'].update(POTCAR_UPDATES)
+
+    def __init__(self, structure, **kwargs):
+        # pop the old kwargs, backwards compatibility from the complex StaticSet
+        old_kwargs = ['prev_incar', 'prev_kpoints', 'grid_density', 'lepsilon', 'lcalcpol']
+        for k in old_kwargs:
+            try:
+                kwargs.pop(k)
+            except KeyError:
+                pass
+        self.kwargs = kwargs
+        super(ForcesSet, self).__init__(structure, ForcesSet.CONFIG, **kwargs)
+
 

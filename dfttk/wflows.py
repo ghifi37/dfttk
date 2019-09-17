@@ -1,4 +1,5 @@
-"""Custom DFTTK Workflows
+"""
+Custom DFTTK Workflows
 """
 
 import numpy as np
@@ -7,7 +8,7 @@ from uuid import uuid4
 from fireworks import Workflow, Firework
 from atomate.vasp.config import VASP_CMD, DB_FILE
 
-from dfttk.ftasks import QHAAnalysis
+#from dfttk.ftasks import QHAAnalysis
 from dfttk.fworks import OptimizeFW, StaticFW, PhononFW
 from dfttk.input_sets import RelaxSet, StaticSet, ForceConstantsSet
 from dfttk.EVcheck_QHA import EVcheck_QHA
@@ -15,9 +16,9 @@ from dfttk.EVcheck_QHA import EVcheck_QHA
 
 def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1),
                  phonon=False, phonon_supercell_matrix=None,
-                 t_min=5, t_max=2000, t_step=5, tolerance = 0.001,
+                 t_min=5, t_max=2000, t_step=5, tolerance = 0.001, volume_spacing_min = 0.02,
                  vasp_cmd=None, db_file=None, metadata=None, name='EV_QHA', 
-                 passinitrun=False):
+                 passinitrun=False, verbose=False):
     """
     E - V
     curve
@@ -42,7 +43,9 @@ def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1
     t_max : float
         Maximum temperature (inclusive)
     tolerance: float
-        Acceptable value for average RMS, recommend >= 0.001.
+        Acceptable value for average RMS, recommend >= 0.001
+    volume_spacing_min: float
+        Minimum ratio of Volumes spacing
     vasp_cmd : str
         Command to run VASP. If None (the default) is passed, the command will be looked up in the FWorker.
     db_file : str
@@ -59,14 +62,15 @@ def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1
 
     metadata = metadata or {}
     tag = metadata.get('tag', '{}'.format(str(uuid4())))
-    max_spacing = 0.02  # for ratio of Volumes spacing
 
     if isinstance(deformation_fraction, (list, tuple)):
         deformations = np.linspace(1+deformation_fraction[0], 1+deformation_fraction[1], num_deformations)
-        vol_spacing = max((deformation_fraction[1] - deformation_fraction[0]) / (num_deformations - 1) + 0.001, max_spacing)
+        vol_spacing = max((deformation_fraction[1] - deformation_fraction[0]) / (num_deformations - 0.999999) + 0.001, 
+                          volume_spacing_min)
     else:
         deformations = np.linspace(1-deformation_fraction, 1+deformation_fraction, num_deformations)
-        vol_spacing = max(deformation_fraction / (num_deformations - 1) * 2 + 0.001, max_spacing)
+        vol_spacing = max(deformation_fraction / (num_deformations - 0.999999) * 2 + 0.001, 
+                          volume_spacing_min)
             
     fws = []
     static_calcs = []
@@ -109,17 +113,9 @@ def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.05, 0.1
     check_result = Firework(EVcheck_QHA(db_file = db_file, tag = tag, structure = structure, 
                                         tolerance = tolerance, threshold = 14, vol_spacing = vol_spacing, vasp_cmd = vasp_cmd, 
                                         metadata = metadata, t_min=t_min, t_max=t_max, t_step=t_step, phonon = phonon,
-                                        phonon_supercell_matrix = phonon_supercell_matrix, verbose = True), 
-                            parents=static_calcs, name='EVcheck_QHA')
+                                        phonon_supercell_matrix = phonon_supercell_matrix, verbose = verbose), 
+                            parents=static_calcs, name='%s-EVcheck_QHA' %structure.composition.reduced_formula)
     fws.append(check_result)
-
-    # always do a Debye after the static calculations. That way we can set up a phonon calculation, do a Debye fitting, then do the phonon if we want.
-#    debye_fw = Firework(QHAAnalysis(phonon=False, t_min=t_min, t_max=t_max, t_step=t_step, db_file=db_file, tag=tag, metadata=metadata), parents=check_result, name="{}-qha_analysis-Debye".format(structure.composition.reduced_formula))
-#    fws.append(debye_fw)
-#    if phonon:
-#        # do a Debye run before the phonon, so they can be done in stages.
-#        phonon_fw = Firework(QHAAnalysis(phonon=True, t_min=t_min, t_max=t_max, t_step=t_step, db_file=db_file, tag=tag, metadata=metadata), parents=phonon_calcs, name="{}-qha_analysis-phonon".format(structure.composition.reduced_formula))
-#        fws.append(phonon_fw)
 
     wfname = "{}:{}".format(structure.composition.reduced_formula, name)
 

@@ -33,19 +33,19 @@ class RelaxSet(DictSet):
     # we never are comparing relaxations, only using them for optimizing structures.
     CONFIG['INCAR'].pop('ENCUT')  # use the ENCUT set by PREC
     CONFIG['KPOINTS'].update({
-        'grid_density': 20,
+        'grid_density': 8000,
     })
     CONFIG['KPOINTS'].pop('reciprocal_density') # to be explicit
     CONFIG['INCAR'].update({
         'EDIFF_PER_ATOM': 1e-5,
         'ISMEAR': 1,
         'SIGMA': 0.2,
-        'LREAL': 'Auto',
+        'LREAL': False,
         'PREC': 'Accurate',
         'ALGO': 'NORMAL',
         'LWAVE': False,
         'LCHARG': False,
-        'ISIF': 4,
+        'ISIF': 3,
         "ICHARG": 2,
         'ENCUT': 520,
     })
@@ -75,7 +75,7 @@ class ForceConstantsSet(DictSet):
     CONFIG = _load_yaml_config("MPRelaxSet")
     # we never are comparing relaxations, only using them for optimizing structures.
     CONFIG['KPOINTS'].update({
-        'grid_density': 20,
+        'grid_density': 8000,
     })
     CONFIG['KPOINTS'].pop('reciprocal_density') # to be explicit
     CONFIG['INCAR'].pop('ENCUT')  # use the ENCUT set by PREC
@@ -83,7 +83,7 @@ class ForceConstantsSet(DictSet):
         'EDIFF_PER_ATOM': 1e-6,
         'ISMEAR': 1,
         'SIGMA': 0.2,
-        'LREAL': 'Auto',
+        'LREAL': False,
         'ISIF': 0,  # only calculate the forces, stress tensor is not needed
         'IBRION': 6,  # calculate force constants by finite differences with symmetry
         'POTIM': 0.015,  # displacement distance
@@ -110,7 +110,7 @@ class StaticSet(DictSet):
     """
     CONFIG = _load_yaml_config("MPRelaxSet")
     CONFIG['KPOINTS'].update({
-        'grid_density': 20,
+        'grid_density': 8000,
     })
     CONFIG['KPOINTS'].pop('reciprocal_density')  # to be explicit
     CONFIG['INCAR'].update({
@@ -119,7 +119,7 @@ class StaticSet(DictSet):
         'ISMEAR': -5,
         "NSW": 0,
         "IBRION": -1,
-        'LREAL': 'Auto',
+        'LREAL': False,
         'ALGO': 'NORMAL',
         # other settings from MPStaticSet
         "LAECHG": True,
@@ -152,7 +152,7 @@ class ATATIDSet():
     Overrides write_input to write the INCAR, KPPRA, USEPOT and DOSTATIC to the vasp.wrap instead.
     """
 
-    def __init__(self, structure, grid_density=20):
+    def __init__(self, structure, grid_density=8000):
         self.structure = structure
         self.grid_density = grid_density
 
@@ -167,7 +167,6 @@ class ATATIDSet():
         PREC = Accurate
         ALGO = Fast
         ENCUT = 520
-        LREAL = Auto
         ISMEAR = 1
         SIGMA = 0.2
         IBRION = -1
@@ -175,12 +174,13 @@ class ATATIDSet():
         ISPIN = 2
         NELMIN = 4
         ISIF = 2
+        LREAL = False
         ISYM = 0
         ICHARG = 1
         ISTART = 2
         USEPOT = PAWPBE
         KPPRA = {1}
-        """.format(EDIFF, self.grid_density)    #         
+        """.format(EDIFF, self.grid_density)
         with open(os.path.join(output_dir, 'vaspid.wrap'), 'w') as fp:
             fp.write(vasp_wrap)
 

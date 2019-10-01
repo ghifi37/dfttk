@@ -307,6 +307,24 @@ def mark_adopted(tag, db_file, volumes):
                                     {'$set': {'adopted': True}}, upsert = True, multi = False)
 
 
+def consistent_check_db(db_file, tag):
+    '''
+    In the subsequent running(run DFTTK again with the same tag exists in Mongo DB), 
+    if phonon method is committed, it'd better to check the lengths of 
+    "task" and "phonon" collections.
+    '''
+    from atomate.vasp.database import VaspCalcDb
+    vasp_db = VaspCalcDb.from_db_file(db_file, admin=True)
+    num_task = vasp_db.collection.count_documents({'$and':[ {'metadata.tag': tag}, {'adopted': True} ]})
+    num_phonon = vasp_db.db['phonon'].count_documents({'$and':[ {'metadata.tag': tag}, {'adopted': True} ]})
+    if num_task == num_phonon:
+        return(True)
+    else:
+        print('The records length of "task"(%s) differs to the length(%s) of "phonon" in mongodb.' 
+              %(num_task, num_phonon))
+        return(False)
+
+
 import re
 from pymatgen import Structure
 class metadata_in_POSCAR():

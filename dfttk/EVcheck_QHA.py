@@ -3,7 +3,7 @@
 import math
 import numpy as np
 from atomate.vasp.database import VaspCalcDb
-from dfttk.utils import sort_x_by_y, mark_adopted
+from dfttk.utils import sort_x_by_y, mark_adopted, consistent_check_db
 from itertools import combinations
 from pymatgen.analysis.eos import EOS
 from fireworks import FiretaskBase, LaunchPad, Workflow, Firework
@@ -62,6 +62,10 @@ class EVcheck_QHA(FiretaskBase):
         verbose = self.get('verbose') or False
         run_num += 1
         
+        if not consistent_check_db(db_file, tag):
+            print('Please check DB, DFTTK running ended!')
+            return
+
         volumes, energies, dos_objs = self.get_orig_EV(db_file, tag)
         self.check_points(db_file, metadata, tolerance, threshold, del_limited, volumes, energies, verbose)
         
@@ -80,14 +84,15 @@ class EVcheck_QHA(FiretaskBase):
             vol_orig = structure.volume
             volume, energy, dos_obj = self.gen_volenergdos(self.points, volumes, energies, dos_objs)
             vol_adds = self.check_vol_coverage(volume, vol_spacing, vol_orig, run_num, 
-                                               energy, structure, dos_obj, t_min, t_max)   # Normalized to 1
+                                               energy, structure, dos_obj, phonon, 
+                                               db_file, tag, t_min, t_max, t_step)   # Normalized to 1
             EVcheck_result['sellected'] = volume
             EVcheck_result['append'] = str(vol_adds * vol_orig)
             # Marked as adopted in db
             mark_adopted(tag, db_file, volume)
             lpad = LaunchPad.auto_load()
             fws = []
-            if vol_adds != []:
+            if vol_adds != []:      # VASP calculations need to append
                 if run_num < max_run:
                     # Do VASP and check again
                     print('Append the volumes of : %s to calculate in VASP!' %(vol_adds * vol_orig))
@@ -124,8 +129,10 @@ class EVcheck_QHA(FiretaskBase):
                     print('''
 
 #######################################################################
-             Too many times appended VASP running, abort!
-                      Please check VASP setting!
+#                                                                     #
+#            Too many times appended VASP running, abort!             #
+#                      Please check VASP setting!                     #
+#                                                                     #
 #######################################################################
 
                          ''')
@@ -145,7 +152,7 @@ class EVcheck_QHA(FiretaskBase):
                 wfs = Workflow(fws, name = strname, metadata=metadata)
                 lpad.add_wf(wfs)
         else:   # failure to meet the tolerance
-            if self.error == 1e10:   # Bad initial running set
+            if len(volumes) == 0: #self.error == 1e10:   # Bad initial running set
                 print('''
 
 #######################################################################
@@ -244,12 +251,12 @@ class EVcheck_QHA(FiretaskBase):
         # For len(num) > threshold case, do a whole number fitting to pass numbers delete if met tolerance
         for i in range(1):     # To avoid the codes after except running
             if (len(num) > threshold):
-                try:
-                    self.check_fit(volumes, energies)
-                except:
-                    if verbose:
-                        print('Fitting error in: ', comb)
-                    break
+#                try:
+                self.check_fit(volumes, energies)
+#                except:
+#                    if verbose:
+#                        print('Fitting error in: ', comb)
+#                    break
                 fit_value = self.eos_fit.func(volumes)
                 temperror = 0
                 for m in range(len(volumes)):
@@ -296,12 +303,12 @@ class EVcheck_QHA(FiretaskBase):
                 combination = combinations(comb_source, len_comb)
                 for combs in combination:
                     volume, energy = self.gen_volenerg(combs, volumes, energies)
-                    try:
-                        self.check_fit(volume, energy)
-                    except:
-                        if verbose:
-                            print('Fitting error in: ', combs)
-                        continue
+#                    try:
+                    self.check_fit(volume, energy)
+#                    except:
+#                        if verbose:
+#                            print('Fitting error in: ', combs)
+#                        continue
                     fit_value = self.eos_fit.func(volume)
                     temperror = 0
                     for m in range(len(volume)):
@@ -324,9 +331,11 @@ class EVcheck_QHA(FiretaskBase):
         
     
     def check_vol_coverage(self, volume, vol_spacing, vol_orig, run_num, energy, structure, 
-                          dos_objects, t_min, t_max):
+                          dos_objects, phonon, db_file, tag, t_min, t_max, t_step):
         result = []
         volumer = volume.copy()
+        
+        # Check minimum spacing
         for m in range(len(volumer)):
             volumer[m] = volumer[m] / vol_orig
         for m in range(len(volumer) - 1):
@@ -336,19 +345,46 @@ class EVcheck_QHA(FiretaskBase):
                 while vol < volumer[m + 1]:
                     result.append(vol)
                     vol += step
-        # To check and extend deformation rations
-        vol_spacing = vol_spacing * 0.98   # To make sure that coverage extension smaller than interpolation spacing
+        
+        # To check (and extend) deformation coverage
+        # To make sure that coverage extension smaller than interpolation spacing
+        vol_spacing = vol_spacing * 0.98   
+        
         qha = Quasiharmonic(energy, volume, structure, dos_objects=dos_objects, F_vib=None,
-                            t_min=t_min, t_max=t_max, t_step=(t_max-t_min)/100, poisson=0.363615, bp2gru=1)
-        vol_max = np.max(qha.optimum_volumes) / vol_orig
-        vol_min = np.min(qha.optimum_volumes) / vol_orig
+                            t_min=t_min, t_max=t_max, t_step=t_step, poisson=0.363615, bp2gru=1)
+        vol_max = np.nanmax(qha.optimum_volumes)
+        vol_min = np.nanmin(qha.optimum_volumes)
+        if phonon:
+            # get the vibrational properties from the FW spec
+            vasp_db = VaspCalcDb.from_db_file(db_file, admin=True)
+            phonon_calculations = list(vasp_db.db['phonon'].find({'$and':[ {'metadata.tag': tag}, {'adopted': True} ]}))
+            vol_vol = [calc['volume'] for calc in phonon_calculations]  # these are just used for sorting and will be thrown away
+            vol_f_vib = [calc['F_vib'] for calc in phonon_calculations]
+            # sort them order of the unit cell volumes
+            vol_f_vib = sort_x_by_y(vol_f_vib, vol_vol)
+            f_vib = np.vstack(vol_f_vib)
+            qha_phonon = Quasiharmonic(energy, volume, structure, dos_objects=dos_objects, F_vib=f_vib,
+                                t_min=t_min, t_max=t_max, t_step=t_step, poisson=0.363615, bp2gru=1)
+            vol_max = max(np.nanmax(qha_phonon.optimum_volumes), vol_max)
+            vol_min = min(np.nanmax(qha_phonon.optimum_volumes), vol_min)
+        print('Evaluated MIN volume is %.3f;' %vol_min)
+        print('Evaluated MAX volume is %.3f;' %vol_max)
+        
+        vol_max = vol_max / vol_orig
+        vol_min = vol_min / vol_orig
+        counter = 0
+        # Over coverage ratio set to 1.01 as following
         if volumer[-1] * 1.01 < vol_max:
             result.append(volumer[-1] + vol_spacing)
-            while result[-1] < vol_max:
+            # counter is set to limit calculation times when exception occurs
+            while (counter < 4) and (result[-1] < vol_max):
                 result.append(result[-1] + vol_spacing)
+                counter += 1
+        counter = 0
         if volumer[0] * 0.99 > vol_min:
             result.append(volumer[0] - vol_spacing)
-            while result[-1] > vol_min:
+            while (counter < 4) and (result[-1] > vol_min):
                 result.append(result[-1] - vol_spacing)
+                counter += 1
         return(np.array(result))
 

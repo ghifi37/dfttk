@@ -492,6 +492,7 @@ class CalculatePhononThermalProperties(FiretaskBase):
         db_file = env_chk(self["db_file"], fw_spec)
         vasp_db = VaspCalcDb.from_db_file(db_file, admin=True)
         vasp_db.db['phonon'].insert_one(thermal_props_dict)
+        vasp_db.db['phonon'].insert_one({'adopted' : True})
 
 
 @explicit_serialize

@@ -70,11 +70,7 @@ class EVcheck_QHA(FiretaskBase):
         run_num += 1
         
         relax_path, Pos_Shape_relax = check_relax_path(relax_path, db_file, tag, Pos_Shape_relax)
-        if relax_path != '':
-            from pymatgen.io.vasp.inputs import Poscar
-            poscar = Poscar.from_file(relax_path + '/CONTCAR')
-            structure = poscar.structure
-        else:
+        if relax_path == '':
             print('''
 #######################################################################
 #                                                                     #
@@ -84,6 +80,10 @@ class EVcheck_QHA(FiretaskBase):
 #######################################################################
                 ''')
             return
+        
+        from pymatgen.io.vasp.inputs import Poscar
+        poscar = Poscar.from_file(relax_path + '/CONTCAR')
+        structure = poscar.structure
         
         if phonon:
             if not consistent_check_db(db_file, tag):
@@ -156,7 +156,7 @@ class EVcheck_QHA(FiretaskBase):
                                      prev_calc_loc=True, parents=static)
                             fws.append(phonon_fw)
                             calcs.append(phonon_fw)
-                    check_result = Firework(EVcheck_QHA(db_file = db_file, tag = tag, structure = structure, relax_path = relax_path, tolerance = tolerance, 
+                    check_result = Firework(EVcheck_QHA(db_file = db_file, tag = tag, relax_path = relax_path, tolerance = tolerance, 
                                                         threshold = threshold, vol_spacing = vol_spacing, vasp_cmd = vasp_cmd, run_num = run_num,
                                                         metadata = metadata, t_min = t_min, t_max = t_max, t_step = t_step, phonon = phonon,
                                                         phonon_supercell_matrix = phonon_supercell_matrix, symmetry_tolerance = symmetry_tolerance,

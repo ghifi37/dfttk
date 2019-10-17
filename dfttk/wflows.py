@@ -105,7 +105,7 @@ def get_wf_gibbs(structure, num_deformations=7, deformation_fraction=(-0.1, 0.1)
         fws.append(full_relax_fw)
     else:
         full_relax_fw = None
-    check_result = Firework(EVcheck_QHA(db_file = db_file, tag = tag, structure = structure, relax_path = relax_path, deformations =deformations,
+    check_result = Firework(EVcheck_QHA(db_file = db_file, tag = tag, relax_path = relax_path, deformations =deformations,
                                         tolerance = tolerance, threshold = 14, vol_spacing = vol_spacing, vasp_cmd = vasp_cmd, 
                                         metadata = metadata, t_min=t_min, t_max=t_max, t_step=t_step, phonon = phonon, symmetry_tolerance = symmetry_tolerance,
                                         phonon_supercell_matrix = phonon_supercell_matrix, verbose = verbose, Pos_Shape_relax = Pos_Shape_relax,

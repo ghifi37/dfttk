@@ -320,9 +320,62 @@ def consistent_check_db(db_file, tag):
     if num_task == num_phonon:
         return(True)
     else:
-        print('The records length of "task"(%s) differs to the length(%s) of "phonon" in mongodb.' 
+        print('The records length of "task"(%s) differs to the length of "phonon"(%s) in mongodb.' 
               %(num_task, num_phonon))
         return(False)
+
+
+def check_relax_path(relax_path, db_file, tag, Pos_Shape_relax):
+    from atomate.vasp.database import VaspCalcDb
+    vasp_db = VaspCalcDb.from_db_file(db_file, admin=True)
+    if relax_path != '':
+        if os.path.exists(relax_path):
+            return(relax_path, Pos_Shape_relax)
+    
+    if vasp_db.db["relax"].count_documents({'metadata.tag': tag}) > 0:
+        items = vasp_db.db["relax"].find({'metadata.tag': tag}).sort([('_id', -1)]).limit(1)
+        if os.path.exists(items[0]['path']):
+            print('Relax result "%s" with "Pos_Shape_relax = %s" has been found, and will be used for new static calculations.' 
+                  %(items[0]['path'], items[0]['Pos_Shape_relax']))
+            return(items[0]['path'], items[0]['Pos_Shape_relax'])
+        else:
+            print('Relax result "%s" has been found but NOT exists. Change tag and try again!' %relax_path)
+            return('', Pos_Shape_relax)
+    else:
+        print('No relax result found.')
+        return('', Pos_Shape_relax)
+    
+
+def add_modify_incar_by_FWname(wf, modify_incar_params):
+    from atomate.vasp.powerups import add_modify_incar
+    for keyword in modify_incar_params.keys():
+        add_modify_incar(wf, modify_incar_params = modify_incar_params[keyword], fw_name_constraint = keyword)
+
+
+def add_modify_kpoints(original_wf, modify_kpoints_params, fw_name_constraint=None):
+    """
+    Every FireWork that runs VASP has a ModifyIncar task just beforehand. For example, allows
+    you to modify the INCAR based on the Worker using env_chk or using hard-coded changes.
+
+    Args:
+        original_wf (Workflow)
+        modify_incar_params (dict) - dict of parameters for ModifyIncar.
+        fw_name_constraint (str) - Only apply changes to FWs where fw_name contains this substring.
+
+    Returns:
+       Workflow
+    """
+    from atomate.utils.utils import get_fws_and_tasks
+    from dfttk.ftasks import ModifyKpoints
+    for idx_fw, idx_t in get_fws_and_tasks(original_wf, fw_name_constraint=fw_name_constraint,
+                                           task_name_constraint="RunVasp"):
+        original_wf.fws[idx_fw].tasks.insert(idx_t, ModifyKpoints(modify_kpoints_params = modify_kpoints_params))
+    return original_wf
+
+
+def add_modify_kpoints_by_FWname(wf, modify_kpoints_params):
+    for keyword in modify_kpoints_params.keys():
+        add_modify_kpoints(wf, modify_kpoints_params = modify_kpoints_params[keyword], fw_name_constraint = keyword)
 
 
 import re

@@ -86,7 +86,7 @@ class ATATWalltimeHandler(ErrorHandler):
 
 class ATATInfDetJob(Job):
     def __init__(self, continuation=False, inflection=False):
-        self.name = 'ATAT Inflection Detection Job'
+#        self.name = 'ATAT Inflection Detection Job'
         self.continuation = continuation
         self.inflection = inflection
 

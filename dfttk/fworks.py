@@ -13,6 +13,7 @@ from dfttk.ftasks import WriteVaspFromIOSetPrevStructure, SupercellTransformatio
     CheckSymmetry, ScaleVolumeTransformation, TransmuteStructureFile, WriteATATFromIOSet, RunATATCustodian, RunVaspCustodianNoValidate
 from atomate import __version__ as atomate_ver
 from dfttk import __version__ as dfttk_ver
+from dfttk.ftasks import Record_relax_running_path
 
 
 class OptimizeFW(Firework):
@@ -38,9 +39,10 @@ class OptimizeFW(Firework):
             Whether to insert the task into the database. Defaults to False.
         \*\*kwargs: Other kwargs that are passed to Firework.__init__.
     """
-    def __init__(self, structure, symmetry_tolerance=None, name="structure optimization", vasp_input_set=None, job_type="normal",
-                 vasp_cmd="vasp", metadata=None, override_default_vasp_params=None, db_file=None,
-                 force_gamma=True, prev_calc_loc=True, parents=None, db_insert=False, **kwargs):
+    def __init__(self, structure, scale_lattice=None, symmetry_tolerance=None, name="structure optimization", vasp_input_set=None, job_type="normal",
+                 vasp_cmd="vasp", metadata=None, override_default_vasp_params=None, db_file=None, record_path=False, modify_incar=None,
+                 force_gamma=True, prev_calc_loc=True, parents=None, db_insert=False, Pos_Shape_relax=False, 
+                 modify_incar_params = {}, modify_kpoints_params = {}, **kwargs):
 
         metadata = metadata or {}
         override_default_vasp_params = override_default_vasp_params or {}
@@ -49,23 +51,32 @@ class OptimizeFW(Firework):
         site_properties = deepcopy(structure).site_properties
 
         t = []
-        if parents:
+        # Avoids delivery (prev_calc_loc == '' (instead by True))
+        if type(prev_calc_loc) == str:
+            t.append(CopyVaspOutputs(calc_dir=prev_calc_loc, contcar_to_poscar=True))
+            t.append(WriteVaspFromIOSetPrevStructure(vasp_input_set=vasp_input_set, site_properties=site_properties))
+        elif parents:
             if prev_calc_loc:
                 t.append(CopyVaspOutputs(calc_loc=prev_calc_loc, contcar_to_poscar=True))
             t.append(WriteVaspFromIOSetPrevStructure(vasp_input_set=vasp_input_set, site_properties=site_properties))
         else:
-            vasp_input_set = vasp_input_set or RelaxSet(structure)
+#            vasp_input_set = vasp_input_set or RelaxSet(structure)  # ??
             t.append(WriteVaspFromIOSet(structure=structure, vasp_input_set=vasp_input_set))
+        if scale_lattice is not None:
+            t.append(ScaleVolumeTransformation(scale_factor=scale_lattice))
         t.append(ModifyIncar(incar_update=">>incar_update<<"))
+        if modify_incar != None:
+             t.append(ModifyIncar(incar_update=modify_incar))
         t.append(RunVaspCustodian(vasp_cmd=vasp_cmd, job_type=job_type, gzip_output=False))
         t.append(PassCalcLocs(name=name))
+        if record_path:
+            t.append(Record_relax_running_path(db_file = db_file, metadata = metadata, Pos_Shape_relax = Pos_Shape_relax))
         if db_insert:
-            t.append(VaspToDb(db_file=db_file, additional_fields={"task_label": name, "metadata": metadata, \
-                                                                  "version_atomate": atomate_ver, "version_dfttk": dfttk_ver, \
-                                                                  "adopted": True}))
+            t.append(VaspToDb(db_file=db_file, additional_fields={"task_label": name, "metadata": metadata}))
         # This has to happen at the end because dynamically adding Fireworks if the symmetry breaks skips the rest of the tasks in the Firework.
         if symmetry_tolerance is not None:
-            t.append(CheckSymmetry(tolerance=symmetry_tolerance, vasp_cmd=vasp_cmd, db_file=db_file, structure=structure, metadata=metadata, name=name))
+            t.append(CheckSymmetry(tolerance=symmetry_tolerance, vasp_cmd=vasp_cmd, db_file=db_file, structure=structure, metadata=metadata, name=name,
+                                   modify_incar_params=modify_incar_params, modify_kpoints_params=modify_kpoints_params, Pos_Shape_relax=Pos_Shape_relax))
         super(OptimizeFW, self).__init__(t, parents=parents, name="{}-{}".format(structure.composition.reduced_formula, name), **kwargs)
 
 
@@ -105,10 +116,13 @@ class StaticFW(Firework):
         metadata = metadata or {}
         vasp_input_set = vasp_input_set or StaticSet(structure)
         site_properties = deepcopy(structure).site_properties
-
+        
+        # Avoids delivery (prev_calc_loc == '' (instead by True))
         t = []
-
-        if parents:
+        if type(prev_calc_loc) == str:
+            t.append(CopyVaspOutputs(calc_dir=prev_calc_loc, contcar_to_poscar=True))
+            t.append(WriteVaspFromIOSetPrevStructure(vasp_input_set=vasp_input_set, site_properties=site_properties))
+        elif parents:
             if prev_calc_loc:
                 t.append(CopyVaspOutputs(calc_loc=prev_calc_loc, contcar_to_poscar=True))
             t.append(WriteVaspFromIOSetPrevStructure(vasp_input_set=vasp_input_set, site_properties=site_properties))
@@ -160,7 +174,7 @@ class InflectionDetectionFW(Firework):
 
     """
     def __init__(self, structure, name="infdet", input_set=None, metadata=None, prev_calc_loc=True,
-                 db_file=None, parents=None, continuation=False, **kwargs):
+                 db_file=None, parents=None, continuation=False, Pos_Shape_relax=False, **kwargs):
         metadata = metadata or {}
         input_set = input_set or ATATIDSet(structure)
 
@@ -196,6 +210,7 @@ class InflectionDetectionFW(Firework):
         t.append(PassCalcLocs(name=name))
         # Run ATAT's inflection detection
         t.append(RunATATCustodian(continuation=continuation, name=name))
+        t.append(Record_relax_running_path(db_file = db_file, metadata = metadata, Pos_Shape_relax = Pos_Shape_relax))
         super(InflectionDetectionFW, self).__init__(t, parents=parents,
                                                     name="{}-{}".format(structure.composition.reduced_formula, name), **kwargs)
 

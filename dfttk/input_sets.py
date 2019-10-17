@@ -224,3 +224,4 @@ class ForcesSet(DictSet):
         super(ForcesSet, self).__init__(structure, ForcesSet.CONFIG, **kwargs)
 
 
+

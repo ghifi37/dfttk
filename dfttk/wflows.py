@@ -6,8 +6,8 @@ import numpy as np
 from uuid import uuid4
 from fireworks import Workflow, Firework
 from atomate.vasp.config import VASP_CMD, DB_FILE
-from dfttk.fworks import OptimizeFW, StaticFW, PhononFW
-from dfttk.input_sets import RelaxSet, StaticSet, ForceConstantsSet
+from dfttk.fworks import OptimizeFW
+from dfttk.input_sets import RelaxSet
 from dfttk.EVcheck_QHA import EVcheck_QHA
 from dfttk.utils import check_relax_path, add_modify_incar_by_FWname, add_modify_kpoints_by_FWname
 

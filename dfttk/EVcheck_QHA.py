@@ -74,7 +74,7 @@ class EVcheck_QHA(FiretaskBase):
             print('''
 #######################################################################
 #                                                                     #
-#     Cannot find relax path for appending calculations, exit!        #
+#       Cannot find relax path for static calculations, exit!         #
 #               You can modify the tag and run again!                 #
 #                                                                     #
 #######################################################################
@@ -96,7 +96,7 @@ class EVcheck_QHA(FiretaskBase):
             self.check_points(db_file, metadata, tolerance, threshold, del_limited, volumes, energies, verbose)
         else:
             self.correct = True
-            self.error = 0
+            self.error = 1e10
         
         EVcheck_result = {}
         EVcheck_result['append_run_num'] = run_num
@@ -128,8 +128,6 @@ class EVcheck_QHA(FiretaskBase):
                     # Do VASP and check again
                     print('Appending the volumes of : %s to calculate in VASP!' %(vol_adds * vol_orig).tolist())
                     calcs = []
-
-                    calcs = []
                     vis_relax = RelaxSet(structure)
                     vis_static = StaticSet(structure)
                     isif = 5 if 'infdet' in relax_path else 4
@@ -140,6 +138,7 @@ class EVcheck_QHA(FiretaskBase):
                                                      vasp_input_set=vis_relax, vasp_cmd=vasp_cmd, db_file=db_file, metadata=metadata, Pos_Shape_relax = True,
                                                      modify_incar_params=modify_incar_params, modify_kpoints_params = modify_kpoints_params,
                                                      parents=None)
+                            calcs.append(ps_relax_fw)
                             fws.append(ps_relax_fw)
                             static = StaticFW(structure, name = 'structure_%.3f-static' %(vol_add * vol_orig), vasp_input_set=vis_static, vasp_cmd=vasp_cmd, 
                                               db_file=db_file, metadata=metadata, prev_calc_loc=True, parents=ps_relax_fw)
@@ -160,7 +159,7 @@ class EVcheck_QHA(FiretaskBase):
                                                         threshold = threshold, vol_spacing = vol_spacing, vasp_cmd = vasp_cmd, run_num = run_num,
                                                         metadata = metadata, t_min = t_min, t_max = t_max, t_step = t_step, phonon = phonon,
                                                         phonon_supercell_matrix = phonon_supercell_matrix, symmetry_tolerance = symmetry_tolerance,
-                                                        modify_incar_params = modify_incar_params, verbose = verbose,
+                                                        modify_incar_params = modify_incar_params, verbose = verbose, Pos_Shape_relax = Pos_Shape_relax,
                                                         modify_kpoints_params = modify_kpoints_params), 
                                             parents = calcs, name='%s-EVcheck_QHA' %structure.composition.reduced_formula)
                     fws.append(check_result)
